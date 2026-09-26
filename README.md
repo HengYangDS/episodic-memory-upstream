@@ -533,6 +533,12 @@ npm test
 npm run build
 ```
 
+`npm test` prepares the embedding model once in the ignored
+`tmp/test-model-cache` directory, then runs test workers without remote model
+downloads. A fresh test run may download the public model; setting
+`EPISODIC_MEMORY_OFFLINE=1` requires a pre-seeded test cache instead. This does
+not change the production model cache or summarization routes.
+
 ## License
 
 MIT
