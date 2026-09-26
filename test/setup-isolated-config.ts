@@ -13,6 +13,7 @@ const isolatedRoot = mkdtempSync(join(tmpdir(), 'episodic-memory-vitest-'));
 process.env.EPISODIC_MEMORY_CONFIG_DIR = join(isolatedRoot, 'superpowers');
 process.env.CLAUDE_CONFIG_DIR = join(isolatedRoot, 'claude');
 process.env.CODEX_HOME = join(isolatedRoot, 'codex');
+process.env.OMP_HOME = join(isolatedRoot, 'omp');
 
 // Clear any ambient summarizer-billing signals so tests get deterministic
 // cost-guard (#104) and timeout (#160) behavior regardless of the developer's
