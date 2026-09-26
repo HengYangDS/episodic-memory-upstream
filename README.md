@@ -229,7 +229,7 @@ In Codex and opencode, the skill guides the agent to use the episodic-memory MCP
 
 ## API Configuration
 
-By default, episodic-memory uses your Claude Code authentication for Claude Code summarization. Codex-indexed sessions with a session ID are summarized through `codex app-server` by creating an ephemeral `thread/fork`, so the summary can use Codex session context and reasoning summaries without appending to the original rollout.
+By default, episodic-memory uses your Claude Code authentication for Claude Code summarization. Codex-indexed sessions with a session ID are summarized through `codex app-server` by creating an ephemeral `thread/fork`, so the summary can use Codex session context and reasoning summaries without appending to the original rollout. A Codex transcript without a session ID is summarized from its admitted text in an isolated ephemeral `thread/start`; it is never sent to Claude.
 
 To route summarization through a custom Anthropic-compatible endpoint or override the model:
 
@@ -309,7 +309,7 @@ These pass through unchanged to episodic-memory's summarizer subprocess. Because
 
 These settings only affect episodic-memory's summarization calls, not your interactive Claude Code or Codex sessions.
 
-Codex summarization requires `codex-cli 0.130.0` or newer. If Codex app-server summarization is unavailable, sync logs the reason and falls back to transcript-text summarization.
+Codex summarization requires `codex-cli 0.130.0` or newer; isolated transcript-only summaries require `0.154.0` or newer. If Codex app-server summarization is unavailable, sync records a retryable summary failure rather than switching providers.
 
 ### What's Affected
 

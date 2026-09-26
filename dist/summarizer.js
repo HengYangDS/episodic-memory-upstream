@@ -678,7 +678,7 @@ function getCodexSessionId(exchanges, sessionId) {
     if (!exchanges.some(exchange => exchange.harness === 'codex')) {
         return undefined;
     }
-    return sessionId || exchanges.find(exchange => exchange.sessionId)?.sessionId;
+    return sessionId || exchanges.find(exchange => exchange.harness === 'codex' && exchange.sessionId)?.sessionId;
 }
 /**
  * Resolve the model to pass into Codex `thread/fork` for summarization.
@@ -714,21 +714,15 @@ export async function summarizeConversation(exchanges, sessionId) {
         }
     }
     const codexSessionId = getCodexSessionId(exchanges, sessionId);
-    // A record policy must never send a Codex transcript to the Claude path,
-    // even when no source session ID is available for an ordinary fork.
-    if (codexSessionId || (recordPolicy !== null && exchanges.some(exchange => exchange.harness === 'codex'))) {
-        try {
-            const prompt = recordPolicy
-                ? `${SUMMARIZER_CONTEXT_MARKER}. Summarize only the following admitted transcript in 2-4 factual sentences inside <summary></summary>. Do not inspect files, use tools or recover any original session.\n\n${formatConversationText(exchanges)}`
-                : buildCodexSummaryPrompt();
-            const result = await callCodex(prompt, recordPolicy ? undefined : codexSessionId, getCodexModel(exchanges), !!recordPolicy);
-            return extractSummary(result);
-        }
-        catch (error) {
-            if (recordPolicy)
-                throw error; // Keep the selected provider; never recover excluded source context.
-            console.log(`  Codex summarizer unavailable, falling back to transcript text: ${error instanceof Error ? error.message : String(error)}`);
-        }
+    if (exchanges.some(exchange => exchange.harness === 'codex')) {
+        // A sessionless or policy-filtered transcript has no source context to fork.
+        // Summarize its admitted text in a fresh, isolated Codex thread instead.
+        const isolated = recordPolicy !== null || !codexSessionId;
+        const prompt = isolated
+            ? `${SUMMARIZER_CONTEXT_MARKER}. Summarize only the following admitted transcript in 2-4 factual sentences inside <summary></summary>. Do not inspect files, use tools or recover any original session.\n\n${formatConversationText(exchanges)}`
+            : buildCodexSummaryPrompt();
+        const result = await callCodex(prompt, isolated ? undefined : codexSessionId, getCodexModel(exchanges), isolated);
+        return extractSummary(result);
     }
     // Cost safety (#104): everything below this point calls the metered Claude API
     // path. If a stray global ANTHROPIC_API_KEY would be billed and the user hasn't
