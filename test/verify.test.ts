@@ -340,6 +340,7 @@ describe('repairIndex', () => {
     vi.mocked(summarizeConversation).mockClear();
 
     await repairIndex({
+      ...await verifyIndex(),
       missing: [{ path: conversationPath, reason: 'No summary file' }],
       outdated: [{ path: conversationPath, fileTime: 2, dbTime: 1 }],
       orphaned: [], corrupted: []
