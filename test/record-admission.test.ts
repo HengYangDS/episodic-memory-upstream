@@ -359,6 +359,24 @@ describe('persistent record exclusion at native ingestion boundaries', () => {
     expect(request.prompt).not.toContain(PRIVATE);
   });
 
+  it('does not route a policy-admitted Codex transcript without a session ID to Claude', async () => {
+    policy();
+    process.env.EPISODIC_MEMORY_CODEX_BIN = path.join(root, 'missing-codex');
+    vi.mocked(query).mockReset();
+    vi.mocked(query).mockReturnValue({
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'result', is_error: false, result: '<summary>Wrong provider.</summary>' };
+      },
+    } as any);
+    const exchange: ConversationExchange = { id: 'codex-no-id', project: 'fixture',
+      timestamp: '2026-01-01T00:00:00Z', userMessage: 'Explain the selected project architecture and its acceptance boundaries.',
+      assistantMessage: 'This admitted answer is long enough to require a summary but must never reach a different provider.',
+      archivePath: archiveFile, lineStart: 2, lineEnd: 3, harness: 'codex' };
+
+    await expect(summarizeConversation([exchange])).rejects.toThrow();
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it('refuses direct database reinsertion after native deletion across reopen', () => {
     policy();
     const exchange: ConversationExchange = { id: 'denied-body', project: 'fixture',

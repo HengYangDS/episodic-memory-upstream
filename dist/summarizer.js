@@ -714,7 +714,9 @@ export async function summarizeConversation(exchanges, sessionId) {
         }
     }
     const codexSessionId = getCodexSessionId(exchanges, sessionId);
-    if (codexSessionId) {
+    // A record policy must never send a Codex transcript to the Claude path,
+    // even when no source session ID is available for an ordinary fork.
+    if (codexSessionId || (recordPolicy !== null && exchanges.some(exchange => exchange.harness === 'codex'))) {
         try {
             const prompt = recordPolicy
                 ? `${SUMMARIZER_CONTEXT_MARKER}. Summarize only the following admitted transcript in 2-4 factual sentences inside <summary></summary>. Do not inspect files, use tools or recover any original session.\n\n${formatConversationText(exchanges)}`
