@@ -46,6 +46,21 @@ describe('verifyIndex', () => {
     delete process.env.TEST_DB_PATH;
   });
 
+  it('does not create an index database merely by verifying an archive', async () => {
+    const projectArchive = path.join(archiveDir, 'read-only-project');
+    fs.mkdirSync(projectArchive, { recursive: true });
+    const conversationPath = path.join(projectArchive, 'conversation.jsonl');
+    fs.writeFileSync(conversationPath, [
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'Hello' }, timestamp: '2024-01-01T00:00:00Z' }),
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'Hi' }, timestamp: '2024-01-01T00:00:01Z' }),
+    ].join('\n'));
+
+    expect(fs.existsSync(dbPath)).toBe(false);
+    const result = await verifyIndex();
+    expect(result.unindexed.map(item => item.path)).toContain(conversationPath);
+    expect(fs.existsSync(dbPath)).toBe(false);
+  });
+
   it('should skip excluded projects', async () => {
     // Create two projects in archive
     const projectA = path.join(archiveDir, 'project-a');

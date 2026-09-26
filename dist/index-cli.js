@@ -7,16 +7,16 @@ import path from 'path';
 import { getSyncLockPath } from './logging.js';
 import { acquireFileLock, readLockHolder, releaseFileLock } from './file-lock.js';
 const command = process.argv[2];
-// Serialize the whole CLI with `sync-cli`: every command can initialize or
-// migrate the database, and rebuild also deletes the database and summaries.
+// Serialize the whole CLI with `sync-cli`: writers mutate the index/archive,
+// and verification must not claim a consistent result while one is active.
 const syncLockPath = getSyncLockPath();
 const syncLock = acquireFileLock(syncLockPath);
 if (!syncLock) {
     const holder = readLockHolder(syncLockPath);
     const holderLabel = holder !== null ? `pid ${holder}` : 'another process';
-    // stderr keeps this out of stdout consumers; status 0 so hooks don't fail.
+    // A skipped write may be retried by a hook; a skipped verifier is not a result.
     console.error(`episodic-memory: sync already running (${holderLabel}); skipping`);
-    process.exit(0);
+    process.exit(command === 'verify' ? 2 : 0);
 }
 const releaseSyncLockOnce = () => {
     if (releaseSyncLockOnce.done)

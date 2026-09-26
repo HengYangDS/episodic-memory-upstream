@@ -1,8 +1,9 @@
 import fs from 'fs';
 import path from 'path';
+import Database from 'better-sqlite3';
 import { parseConversation } from './parser.js';
-import { initDatabase, getAllExchanges } from './db.js';
-import { getArchiveDir, getExcludedProjects, findJsonlFiles, statIfExists } from './paths.js';
+import { getAllExchanges } from './db.js';
+import { getArchiveDir, getDbPath, getExcludedProjects, findJsonlFiles, statIfExists } from './paths.js';
 import { isErroredSentinel } from './summary-sentinel.js';
 export async function verifyIndex() {
     const result = {
@@ -20,9 +21,10 @@ export async function verifyIndex() {
     if (!fs.existsSync(archiveDir)) {
         return result;
     }
-    // Initialize database once for all checks
-    const db = initDatabase();
-    const indexState = db.prepare(`
+    // Verification must not create or migrate the index it is measuring.
+    const dbPath = getDbPath();
+    const db = fs.existsSync(dbPath) ? new Database(dbPath, { readonly: true, fileMustExist: true }) : null;
+    const indexState = db?.prepare(`
     SELECT MAX(line_end) AS maxLineEnd, MAX(last_indexed) AS lastIndexed
     FROM exchanges WHERE archive_path = ?
   `);
@@ -57,8 +59,8 @@ export async function verifyIndex() {
             else if (isErroredSentinel(fs.readFileSync(summaryPath, 'utf-8'))) {
                 result.missing.push({ path: conversationPath, reason: 'Previous summarization failed (error sentinel)' });
             }
-            const state = indexState.get(conversationPath);
-            const maxLineEnd = state.maxLineEnd;
+            const state = indexState?.get(conversationPath);
+            const maxLineEnd = state?.maxLineEnd ?? null;
             if (maxLineEnd === null)
                 result.unindexed.push({ path: conversationPath });
             // Parse independently of summary state and mtime. Only exchanges past
@@ -67,11 +69,11 @@ export async function verifyIndex() {
                 const exchanges = await parseConversation(conversationPath, project, conversationPath);
                 if (maxLineEnd !== null) {
                     const fileTime = fs.statSync(conversationPath).mtimeMs;
-                    const dbTime = state.lastIndexed ?? 0;
+                    const dbTime = state?.lastIndexed ?? 0;
                     if (exchanges.some(exchange => exchange.lineEnd > maxLineEnd)) {
                         result.outdated.push({ path: conversationPath, fileTime, dbTime });
                     }
-                    else if (state.lastIndexed !== null && fileTime > state.lastIndexed) {
+                    else if (state?.lastIndexed != null && fileTime > state.lastIndexed) {
                         result.archiveRefreshes.push({ path: conversationPath, fileTime, dbTime });
                     }
                 }
@@ -86,8 +88,8 @@ export async function verifyIndex() {
     }
     console.log(`Verified ${totalChecked} conversations.`);
     // Check for orphaned database entries
-    const dbExchanges = getAllExchanges(db);
-    db.close();
+    const dbExchanges = db ? getAllExchanges(db) : [];
+    db?.close();
     for (const exchange of dbExchanges) {
         if (!foundFiles.has(exchange.archivePath) && !statIfExists(exchange.archivePath)?.isFile()) {
             result.orphaned.push({
