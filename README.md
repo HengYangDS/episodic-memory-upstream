@@ -301,11 +301,25 @@ Codex summarization requires `codex-cli 0.130.0` or newer. If Codex app-server s
 | Component | Uses custom config? |
 |-----------|---------------------|
 | Summarization | Yes (up to 10 calls/sync) |
-| Embeddings | No (local Transformers.js) |
+| Embeddings | Optional cache and offline settings (local Transformers.js) |
 | Search | No (local SQLite) |
 | MCP tools | No |
 
 Summaries are display-only: they decorate search results and are never embedded or searched, so `EPISODIC_MEMORY_SKIP_SUMMARIES=1` costs you that line of context and nothing else.
+
+### Embedding model cache and offline mode
+
+Embedding computation is local, but a fresh installation may download its model
+on first use. Model files are cached under the durable Episodic Memory
+configuration directory in `models/`, outside npm-owned `node_modules`, so an
+upgrade or dependency reinstall does not discard them. Set
+`EPISODIC_MEMORY_MODEL_CACHE_DIR` to an absolute path to use a different or
+pre-seeded cache.
+
+Set `EPISODIC_MEMORY_OFFLINE=1` to forbid remote model downloads. In that mode,
+seed the model cache before indexing or semantic search; a missing model fails
+with an explicit cache/offline error rather than silently fetching it. Other
+values retain the normal first-install download behavior.
 
 ## Commands
 
@@ -411,7 +425,7 @@ open output.html
 
 1. **Sync** - Copies conversation files from Claude Code and Codex transcript directories to archive; exports opencode sessions from SQLite into generated JSONL transcripts
 2. **Parse** - Extracts user-agent exchanges from Claude Code JSONL, Codex rollout JSONL, or opencode transcript JSONL
-3. **Embed** - Generates vector embeddings using Transformers.js (local, offline)
+3. **Embed** - Generates vectors locally with Transformers.js after the model is available
 4. **Index** - Stores in SQLite with sqlite-vec for fast similarity search
 5. **Search** - Semantic search using vector similarity or exact text matching
 
