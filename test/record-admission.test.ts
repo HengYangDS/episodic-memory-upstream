@@ -229,6 +229,16 @@ describe('persistent record exclusion at native ingestion boundaries', () => {
     expect(fs.readFileSync(archiveFile, 'utf8')).toBe(bytes);
   });
 
+  it('refreshes an archive when the source grows but its mtime ties the archive', async () => {
+    expect(await archiveAdmittedConversation(sourceFile, archiveFile)).toBe(true);
+    const archiveTime = fs.statSync(archiveFile).mtime;
+    fs.appendFileSync(sourceFile, JSON.stringify(message('user', 'An appended safe exchange')) + '\n');
+    fs.utimesSync(sourceFile, archiveTime, archiveTime);
+
+    expect(await archiveAdmittedConversation(sourceFile, archiveFile)).toBe(true);
+    expect(fs.readFileSync(archiveFile)).toEqual(fs.readFileSync(sourceFile));
+  });
+
   it('rejects source mutation during streaming without publishing a derived file', async () => {
     policy();
     const original = fs.createReadStream;
