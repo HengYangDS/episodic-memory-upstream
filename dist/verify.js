@@ -6,10 +6,13 @@ import { getArchiveDir, getExcludedProjects, findJsonlFiles, statIfExists } from
 import { isErroredSentinel } from './summary-sentinel.js';
 import { readRecordExclusions } from './record-admission.js';
 export async function verifyIndex() {
+    readRecordExclusions();
     const result = {
         missing: [],
         orphaned: [],
         outdated: [],
+        screeningRejected: [],
+        screeningUnavailable: [],
         corrupted: []
     };
     const archiveDir = getArchiveDir();
@@ -48,11 +51,9 @@ export async function verifyIndex() {
             // re-attempts it rather than reporting the conversation as healthy.
             if (!fs.existsSync(summaryPath)) {
                 result.missing.push({ path: conversationPath, reason: 'No summary file' });
-                continue;
             }
-            if (isErroredSentinel(fs.readFileSync(summaryPath, 'utf-8'))) {
+            else if (isErroredSentinel(fs.readFileSync(summaryPath, 'utf-8'))) {
                 result.missing.push({ path: conversationPath, reason: 'Previous summarization failed (error sentinel)' });
-                continue;
             }
             // Check if file is outdated (modified after last_indexed)
             const lastIndexed = getFileLastIndexed(db, conversationPath);
@@ -71,10 +72,18 @@ export async function verifyIndex() {
                 await parseConversation(conversationPath, project, conversationPath);
             }
             catch (error) {
-                result.corrupted.push({
-                    path: conversationPath,
-                    error: error instanceof Error ? error.message : String(error)
-                });
+                const message = error instanceof Error ? error.message : String(error);
+                if (message === 'Record content rejected by screening' ||
+                    message === 'Record screening byte limit exceeded' ||
+                    message === 'Record screening nesting limit exceeded') {
+                    result.screeningRejected.push({ path: conversationPath });
+                }
+                else if (message === 'Record screening unavailable') {
+                    result.screeningUnavailable.push({ path: conversationPath });
+                }
+                else {
+                    result.corrupted.push({ path: conversationPath, error: message });
+                }
             }
         }
     }
@@ -93,6 +102,9 @@ export async function verifyIndex() {
     return result;
 }
 export async function repairIndex(issues) {
+    if (issues.screeningRejected.length + issues.screeningUnavailable.length > 0) {
+        throw new Error('Resolve record screening failures before repair');
+    }
     readRecordExclusions();
     console.log('Repairing index...');
     // To avoid circular dependencies, we import the indexer functions dynamically

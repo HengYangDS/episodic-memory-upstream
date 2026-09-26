@@ -73,6 +73,8 @@ async function main() {
         console.log(`Missing summaries: ${issues.missing.length}`);
         console.log(`Orphaned entries: ${issues.orphaned.length}`);
         console.log(`Outdated files: ${issues.outdated.length}`);
+        console.log(`Screening-rejected archives: ${issues.screeningRejected.length}`);
+        console.log(`Screening-unavailable archives: ${issues.screeningUnavailable.length}`);
         console.log(`Corrupted files: ${issues.corrupted.length}`);
 
         if (issues.missing.length > 0) {
@@ -80,8 +82,9 @@ async function main() {
           issues.missing.forEach(m => console.log(`  ${m.path}`));
         }
 
-        if (issues.missing.length + issues.orphaned.length + issues.outdated.length + issues.corrupted.length > 0) {
-          console.log('\nRun with --repair to fix these issues.');
+        if (issues.missing.length + issues.orphaned.length + issues.outdated.length +
+            issues.screeningRejected.length + issues.screeningUnavailable.length + issues.corrupted.length > 0) {
+          console.log('\nReview the reported categories before repair; --repair may regenerate embeddings and AI summaries.');
           process.exit(1);
         } else {
           console.log('\n✅ Index is healthy!');
@@ -92,6 +95,11 @@ async function main() {
         console.log('Verifying conversation index...');
         const repairIssues = await verifyIndex();
 
+        if (repairIssues.screeningRejected.length + repairIssues.screeningUnavailable.length > 0) {
+          console.error('Record screening failures require review; repair was not started.');
+          process.exitCode = 1;
+          break;
+        }
         if (repairIssues.missing.length + repairIssues.orphaned.length + repairIssues.outdated.length > 0) {
           await repairIndex(repairIssues);
         } else {

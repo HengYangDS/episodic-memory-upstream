@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import {
   admitExchange,
   archiveAdmittedConversation,
@@ -11,6 +12,7 @@ import {
 } from '../src/record-admission.js';
 import { initDatabase, insertExchange } from '../src/db.js';
 import { searchConversations } from '../src/search.js';
+import { verifyIndex } from '../src/verify.js';
 import type { ConversationExchange } from '../src/types.js';
 
 const session = '00000000-1111-4222-8333-444444444444';
@@ -56,6 +58,17 @@ function transcript(text: string): string {
   ].map(JSON.stringify).join('\n') + '\n';
 }
 
+function archivedTranscript(text: string, withSummary = false): string {
+  const archiveDir = path.join(root, 'archive');
+  const projectDir = path.join(archiveDir, 'project');
+  fs.mkdirSync(projectDir, { recursive: true });
+  process.env.TEST_ARCHIVE_DIR = archiveDir;
+  const file = path.join(projectDir, path.basename(source));
+  fs.writeFileSync(file, transcript(text));
+  if (withSummary) fs.writeFileSync(file.replace('.jsonl', '-summary.txt'), 'Existing summary');
+  return file;
+}
+
 // Contract probes are executable and digest-pinned without requiring Gitleaks
 // on every CI host. A separate optional integration test exercises Gitleaks.
 function scannerProbe(body: string): string {
@@ -95,6 +108,34 @@ afterEach(() => {
 });
 
 describe('pinned record-local screening at native admission', () => {
+  it('fails verification on an invalid record policy even with no archived files', async () => {
+    fs.writeFileSync(path.join(root, 'record-exclusions.json'), '{invalid');
+    process.env.TEST_ARCHIVE_DIR = path.join(root, 'empty-archive');
+    await expect(verifyIndex()).rejects.toThrow(/record exclusion policy/i);
+  });
+
+  it.each(['rejected', 'unavailable'] as const)('classifies %s screening independently from corruption and missing summary', async outcome => {
+    const file = archivedTranscript(token);
+    if (outcome === 'unavailable') policy({ sha256: '0'.repeat(64) });
+
+    const result = await verifyIndex();
+    expect(result.missing.map(item => item.path)).toContain(file);
+    expect(result.corrupted).toEqual([]);
+    expect(result.screeningRejected.map(item => item.path)).toEqual(outcome === 'rejected' ? [file] : []);
+    expect(result.screeningUnavailable.map(item => item.path)).toEqual(outcome === 'unavailable' ? [file] : []);
+  });
+
+  it('does not report a green repair when configured screening rejects an archive', () => {
+    archivedTranscript(token, true);
+    const cli = path.join(import.meta.dirname, '..', 'dist', 'index-cli.js');
+    const result = spawnSync(process.execPath, [cli, 'repair'], {
+      env: process.env, encoding: 'utf8', timeout: 30_000,
+    });
+    expect(result.status).toBe(1);
+    expect(result.stdout).not.toContain('No issues to repair!');
+    expect(result.stdout).not.toContain('Repair complete.');
+  });
+
   it.skipIf(!realScannerPath)('rejects a synthetic token with the actual Gitleaks executable', () => {
     const executable = fs.realpathSync(realScannerPath!);
     policy({ executable, sha256: crypto.createHash('sha256').update(fs.readFileSync(executable)).digest('hex') });

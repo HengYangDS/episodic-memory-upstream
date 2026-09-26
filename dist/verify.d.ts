@@ -12,6 +12,12 @@ export interface VerificationResult {
         fileTime: number;
         dbTime: number;
     }>;
+    screeningRejected: Array<{
+        path: string;
+    }>;
+    screeningUnavailable: Array<{
+        path: string;
+    }>;
     corrupted: Array<{
         path: string;
         error: string;

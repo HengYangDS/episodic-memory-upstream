@@ -536,6 +536,9 @@ retaining key/value assignment context; separate exchange messages are screened
 separately. A finding rejects the operation rather than silently dropping a new
 message and breaking conversation pairing. Missing/changed executables, byte or
 nesting limits, timeouts and malformed or contradictory reports fail closed.
+Verification reports scanner rejections and scanner unavailability separately
+from transcript corruption, even when a summary is missing. A broad repair
+refuses to start while either screening failure remains.
 No findings, input, scanner diagnostics or secret fingerprints appear in errors.
 The scanner receives stdin in a private empty working directory with no inherited
 environment/configuration and with inline allow comments disabled. Its temporary
