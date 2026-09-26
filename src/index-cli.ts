@@ -71,17 +71,27 @@ async function main() {
 
         console.log('\n=== Verification Results ===');
         console.log(`Missing summaries: ${issues.missing.length}`);
+        console.log(`Unindexed archives: ${issues.unindexed.length}`);
         console.log(`Orphaned entries: ${issues.orphaned.length}`);
         console.log(`Outdated files: ${issues.outdated.length}`);
+        console.log(`Archive refreshes (no new exchanges): ${issues.archiveRefreshes.length}`);
         console.log(`Corrupted files: ${issues.corrupted.length}`);
 
         if (issues.missing.length > 0) {
           console.log('\nMissing summaries:');
           issues.missing.forEach(m => console.log(`  ${m.path}`));
         }
+        if (issues.unindexed.length > 0) {
+          console.log('\nUnindexed archives:');
+          issues.unindexed.forEach(item => console.log(`  ${item.path}`));
+        }
+        if (issues.outdated.length > 0) {
+          console.log('\nArchives with appended exchanges:');
+          issues.outdated.forEach(item => console.log(`  ${item.path}`));
+        }
 
-        if (issues.missing.length + issues.orphaned.length + issues.outdated.length + issues.corrupted.length > 0) {
-          console.log('\nRun with --repair to fix these issues.');
+        if (issues.missing.length + issues.unindexed.length + issues.orphaned.length + issues.outdated.length + issues.corrupted.length > 0) {
+          console.log('\nReview exact candidates before repair; --repair may regenerate summaries and embeddings.');
           process.exit(1);
         } else {
           console.log('\n✅ Index is healthy!');
@@ -92,9 +102,13 @@ async function main() {
         console.log('Verifying conversation index...');
         const repairIssues = await verifyIndex();
 
+        if (repairIssues.unindexed.length > 0) {
+          console.log(`${repairIssues.unindexed.length} unindexed archive(s) require separate review; --repair does not select them by this status alone.`);
+          process.exitCode = 1;
+        }
         if (repairIssues.missing.length + repairIssues.orphaned.length + repairIssues.outdated.length > 0) {
           await repairIndex(repairIssues);
-        } else {
+        } else if (repairIssues.unindexed.length === 0) {
           console.log('✅ No issues to repair!');
         }
         break;

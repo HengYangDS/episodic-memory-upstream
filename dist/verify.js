@@ -1,14 +1,16 @@
 import fs from 'fs';
 import path from 'path';
 import { parseConversation } from './parser.js';
-import { initDatabase, getAllExchanges, getFileLastIndexed } from './db.js';
+import { initDatabase, getAllExchanges } from './db.js';
 import { getArchiveDir, getExcludedProjects, findJsonlFiles, statIfExists } from './paths.js';
 import { isErroredSentinel } from './summary-sentinel.js';
 export async function verifyIndex() {
     const result = {
         missing: [],
+        unindexed: [],
         orphaned: [],
         outdated: [],
+        archiveRefreshes: [],
         corrupted: []
     };
     const archiveDir = getArchiveDir();
@@ -20,6 +22,10 @@ export async function verifyIndex() {
     }
     // Initialize database once for all checks
     const db = initDatabase();
+    const indexState = db.prepare(`
+    SELECT MAX(line_end) AS maxLineEnd, MAX(last_indexed) AS lastIndexed
+    FROM exchanges WHERE archive_path = ?
+  `);
     const projects = fs.readdirSync(archiveDir);
     const excludedProjects = getExcludedProjects();
     const excludedDirSet = new Set(excludedProjects);
@@ -47,27 +53,28 @@ export async function verifyIndex() {
             // re-attempts it rather than reporting the conversation as healthy.
             if (!fs.existsSync(summaryPath)) {
                 result.missing.push({ path: conversationPath, reason: 'No summary file' });
-                continue;
             }
-            if (isErroredSentinel(fs.readFileSync(summaryPath, 'utf-8'))) {
+            else if (isErroredSentinel(fs.readFileSync(summaryPath, 'utf-8'))) {
                 result.missing.push({ path: conversationPath, reason: 'Previous summarization failed (error sentinel)' });
-                continue;
             }
-            // Check if file is outdated (modified after last_indexed)
-            const lastIndexed = getFileLastIndexed(db, conversationPath);
-            if (lastIndexed !== null) {
-                const fileStat = fs.statSync(conversationPath);
-                if (fileStat.mtimeMs > lastIndexed) {
-                    result.outdated.push({
-                        path: conversationPath,
-                        fileTime: fileStat.mtimeMs,
-                        dbTime: lastIndexed
-                    });
-                }
-            }
-            // Try parsing to detect corruption
+            const state = indexState.get(conversationPath);
+            const maxLineEnd = state.maxLineEnd;
+            if (maxLineEnd === null)
+                result.unindexed.push({ path: conversationPath });
+            // Parse independently of summary state and mtime. Only exchanges past
+            // the indexed high-water mark are a real index delta.
             try {
-                await parseConversation(conversationPath, project, conversationPath);
+                const exchanges = await parseConversation(conversationPath, project, conversationPath);
+                if (maxLineEnd !== null) {
+                    const fileTime = fs.statSync(conversationPath).mtimeMs;
+                    const dbTime = state.lastIndexed ?? 0;
+                    if (exchanges.some(exchange => exchange.lineEnd > maxLineEnd)) {
+                        result.outdated.push({ path: conversationPath, fileTime, dbTime });
+                    }
+                    else if (state.lastIndexed !== null && fileTime > state.lastIndexed) {
+                        result.archiveRefreshes.push({ path: conversationPath, fileTime, dbTime });
+                    }
+                }
             }
             catch (error) {
                 result.corrupted.push({
@@ -82,7 +89,7 @@ export async function verifyIndex() {
     const dbExchanges = getAllExchanges(db);
     db.close();
     for (const exchange of dbExchanges) {
-        if (!foundFiles.has(exchange.archivePath)) {
+        if (!foundFiles.has(exchange.archivePath) && !statIfExists(exchange.archivePath)?.isFile()) {
             result.orphaned.push({
                 uuid: exchange.id,
                 path: exchange.archivePath
@@ -106,10 +113,10 @@ export async function repairIndex(issues) {
         deleteExchange(db, orphan.uuid);
     }
     // Re-index missing and outdated conversations
-    const toReindex = [
-        ...issues.missing.map(m => m.path),
-        ...issues.outdated.map(o => o.path)
-    ];
+    const toReindex = [...new Set([
+            ...issues.missing.map(m => m.path),
+            ...issues.outdated.map(o => o.path)
+        ])];
     for (const conversationPath of toReindex) {
         console.log(`Re-indexing: ${conversationPath}`);
         try {
