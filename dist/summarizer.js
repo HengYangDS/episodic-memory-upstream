@@ -405,6 +405,7 @@ async function callClaude(prompt, sessionId, useFallback = false, cwd) {
     }
     return result;
 }
+const CODEX_SUMMARY_TERMINATION_GRACE_MS = 1024;
 function appServerTimeoutMs() {
     const configured = Number(process.env.EPISODIC_MEMORY_CODEX_SUMMARY_TIMEOUT_MS);
     return Number.isFinite(configured) && configured > 0 ? configured : 120000;
@@ -480,6 +481,7 @@ export async function runCodexCommand(command) {
         let finished = false;
         let terminalOutcome;
         let timeout;
+        let terminationTimeout;
         const pending = new Map();
         const lines = createInterface({ input: child.stdout });
         child.stderr.on('data', chunk => {
@@ -492,6 +494,13 @@ export async function runCodexCommand(command) {
             lines.close();
             if (!child.killed) {
                 child.kill('SIGTERM');
+            }
+            if (command.isolated && child.exitCode === null && child.signalCode === null) {
+                // Bound shutdown without removing the owned directory before close.
+                terminationTimeout = setTimeout(() => {
+                    if (child.exitCode === null && child.signalCode === null)
+                        child.kill('SIGKILL');
+                }, CODEX_SUMMARY_TERMINATION_GRACE_MS);
             }
         };
         const finish = (error, result = '') => {
@@ -579,6 +588,8 @@ export async function runCodexCommand(command) {
             }
         });
         child.on('close', () => {
+            if (terminationTimeout)
+                clearTimeout(terminationTimeout);
             if (!command.isolated)
                 return;
             try {

@@ -466,6 +466,8 @@ interface PendingAppServerRequest {
   reject: (error: Error) => void;
 }
 
+const CODEX_SUMMARY_TERMINATION_GRACE_MS = 1024;
+
 function appServerTimeoutMs(): number {
   const configured = Number(process.env.EPISODIC_MEMORY_CODEX_SUMMARY_TIMEOUT_MS);
   return Number.isFinite(configured) && configured > 0 ? configured : 120000;
@@ -548,6 +550,7 @@ export async function runCodexCommand(command: CodexSummarizerCommand): Promise<
     let finished = false;
     let terminalOutcome: { error?: Error; result: string } | undefined;
     let timeout: NodeJS.Timeout | undefined;
+    let terminationTimeout: NodeJS.Timeout | undefined;
     const pending = new Map<number, PendingAppServerRequest>();
     const lines = createInterface({ input: child.stdout });
 
@@ -562,6 +565,12 @@ export async function runCodexCommand(command: CodexSummarizerCommand): Promise<
       lines.close();
       if (!child.killed) {
         child.kill('SIGTERM');
+      }
+      if (command.isolated && child.exitCode === null && child.signalCode === null) {
+        // Bound shutdown without removing the owned directory before close.
+        terminationTimeout = setTimeout(() => {
+          if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+        }, CODEX_SUMMARY_TERMINATION_GRACE_MS);
       }
     };
 
@@ -657,6 +666,7 @@ export async function runCodexCommand(command: CodexSummarizerCommand): Promise<
       }
     });
     child.on('close', () => {
+      if (terminationTimeout) clearTimeout(terminationTimeout);
       if (!command.isolated) return;
       try {
         if (summaryCwd) fs.rmSync(summaryCwd, { recursive: true, force: true });
