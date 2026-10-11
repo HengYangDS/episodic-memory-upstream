@@ -319,7 +319,15 @@ pre-seeded cache.
 Set `EPISODIC_MEMORY_OFFLINE=1` to forbid remote model downloads. In that mode,
 seed the model cache before indexing or semantic search; a missing model fails
 with an explicit cache/offline error rather than silently fetching it. Other
-values retain the normal first-install download behavior.
+values retain the normal first-install download behavior unless the embedding
+host has already disabled remote loading.
+
+These settings use the native Transformers.js process-global configuration.
+The durable cache directory, disabled browser cache, and explicit offline
+restriction apply to all loaders sharing that module instance, not only this
+model. Episodic Memory never re-enables host-disabled local or remote loading.
+An embedding host must coordinate the shared cache and permissions; per-model
+or concurrent configuration isolation is not provided.
 
 ## Commands
 

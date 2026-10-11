@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 vi.mock('@huggingface/transformers', () => ({
-  env: { cacheDir: 'package-cache', allowLocalModels: false, allowRemoteModels: true, useBrowserCache: true },
+  env: { cacheDir: 'package-cache', allowLocalModels: true, allowRemoteModels: true, useBrowserCache: true },
   pipeline: vi.fn(async () => async () => ({ data: new Float32Array(384) })),
 }));
 
@@ -12,13 +12,18 @@ describe('embedding model cache and network policy', () => {
   let directory: string;
   let previous: NodeJS.ProcessEnv;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     previous = { ...process.env };
     directory = fs.mkdtempSync(path.join(os.tmpdir(), 'episodic-model-policy-'));
     process.env.EPISODIC_MEMORY_CONFIG_DIR = path.join(directory, 'config');
     delete process.env.EPISODIC_MEMORY_MODEL_CACHE_DIR;
     delete process.env.EPISODIC_MEMORY_OFFLINE;
     vi.resetModules();
+    const { env } = await import('@huggingface/transformers');
+    Object.assign(env, {
+      cacheDir: 'package-cache', allowLocalModels: true,
+      allowRemoteModels: true, useBrowserCache: true,
+    });
   });
 
   afterEach(() => {
@@ -61,6 +66,26 @@ describe('embedding model cache and network policy', () => {
   it('retains first-install model download behavior by default', async () => {
     const env = await loadPolicy();
     expect(env.allowRemoteModels).toBe(true);
+  });
+
+  it.each([undefined, '0', '1'])('never re-enables host-disabled remote access with offline=%s', async offline => {
+    if (offline !== undefined) process.env.EPISODIC_MEMORY_OFFLINE = offline;
+    const { env } = await import('@huggingface/transformers');
+    env.allowRemoteModels = false;
+
+    await loadPolicy();
+
+    expect(env.allowRemoteModels).toBe(false);
+  });
+
+  it.each([undefined, '1'])('preserves host-disabled local access with offline=%s', async offline => {
+    if (offline !== undefined) process.env.EPISODIC_MEMORY_OFFLINE = offline;
+    const { env } = await import('@huggingface/transformers');
+    env.allowLocalModels = false;
+
+    await loadPolicy();
+
+    expect(env.allowLocalModels).toBe(false);
   });
 
   it('reports an unavailable pre-seeded model clearly in offline mode', async () => {

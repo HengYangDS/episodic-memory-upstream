@@ -82,11 +82,10 @@ export async function initEmbeddings(): Promise<void> {
   let pipeline: typeof import('@huggingface/transformers').pipeline;
   try {
     const transformers = await import('@huggingface/transformers');
-    // Keep model files in durable operator-owned state. Offline mode is an
-    // explicit choice; a fresh default install can still fetch its model.
+    // Native settings apply to the shared Transformers.js module instance.
+    // Keep the durable cache and only restrict existing loading permissions.
     transformers.env.cacheDir = modelCacheDir;
-    transformers.env.allowLocalModels = true;
-    transformers.env.allowRemoteModels = !offline;
+    if (offline) transformers.env.allowRemoteModels = false;
     transformers.env.useBrowserCache = false;
     pipeline = transformers.pipeline;
   } catch (error) {
